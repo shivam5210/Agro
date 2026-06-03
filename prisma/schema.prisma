@@ -1,0 +1,591 @@
+// Prisma Schema for National FPO Digital Market Linkage Platform
+// Based on SUPER PROMPT specifications
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ======================
+// USER & AUTHENTICATION
+// ======================
+model User {
+  id            String   @id @default(uuid())
+  email         String   @unique
+  phone         String   @unique
+  password      String
+  role          Role     @default(FARMER)
+  firstName     String
+  lastName      String
+  isVerified    Boolean  @default(false)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  fpo           FPO?     @relation("fpoAdmin", fields: [fpoId], references: [id])
+  fpoId         String?  @unique
+  farmer        Farmer?  @relation("farmerUser", fields: [farmerId], references: [id])
+  farmerId      String?  @unique
+  buyer         Buyer?   @relation("buyerUser", fields: [buyerId], references: [id])
+  buyerId       String?  @unique
+  logistics     LogisticsProvider? @relation("logisticsUser", fields: [logisticsId], references: [id])
+  logisticsId   String?  @unique
+  financialInst FinancialInstitution? @relation("financialUser", fields: [financialId], references: [id])
+  financialId   String?  @unique
+
+  // For audit trails
+  createdBy     String?
+  updatedBy     String?
+
+  @@index([email])
+  @@index([phone])
+  @@index([role])
+}
+
+enum Role {
+  SUPER_ADMIN
+  FPO_ADMIN
+  FPO_STAFF
+  FARMER
+  BUYER
+  LOGISTICS_PROVIDER
+  FINANCIAL_INSTITUTION
+}
+
+// ======================
+// FPO & FARMER MANAGEMENT
+// ======================
+model FPO {
+  id              String   @id @default(uuid())
+  name            String
+  registrationNo  String   @unique
+  address         String
+  district        String
+  state           String
+  pincode         String
+  contactPerson   String
+  contactPhone    String
+  contactEmail    String
+  website         String?
+  description     String?
+  establishedYear Int?
+  farmerCount     Int      @default(0)
+  isVerified      Boolean  @default(false)
+  verificationDate DateTime?
+  verifiedBy      String?  // Reference to SUPER_ADMIN user id
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  admin           User?    @relation("fpoAdmin", fields: [adminId], references: [id])
+  adminId         String?
+  farmers         Farmer[] @relation("fpoFarmers")
+  commodities     Commodity[] @relation("fpoCommodities")
+  productionData  ProductionForecast[] @relation("fpoProduction")
+  transactions    Transaction[] @relation("fpoTransactions")
+  buyerInquiries  BuyerInquiry[] @relation("fpoInquiries")
+
+  @@index([state, district])
+  @@index([isVerified])
+  @@index([name])
+}
+
+model Farmer {
+  id              String   @id @default(uuid())
+  firstName       String
+  lastName        String
+  phone           String   @unique
+  email           String?  @unique
+  aadharNumber    String?  @unique
+  village         String
+  district        String
+  state           String
+  landArea        Float    // in acres
+  latitude        Float?
+  longitude       Float?
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  user            User?    @relation("farmerUser", fields: [userId], references: [id])
+  userId          String?
+  fpo             FPO?     @relation("fpoFarmers", fields: [fpoId], references: [id])
+  fpoId           String?
+  crops           FarmerCrop[] @relation("farmerCrops")
+  transactions    Transaction[] @relation("farmerTransactions")
+
+  @@index([phone])
+  @@index([fpoId])
+  @@index([state, district])
+}
+
+model FarmerCrop {
+  id          String   @id @default(uuid())
+  farmer      Farmer   @relation("farmerCrops", fields: [farmerId], references: [id])
+  farmerId    String
+  cropName    String
+  variety     String?
+  sowingDate  DateTime?
+  expectedHarvest DateTime?
+  expectedYield Float    // in quintals
+  actualYield Float?
+  unit        String   @default("quintal")
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([farmerId, cropName])
+  @@index([expectedHarvest])
+}
+
+// ======================
+// COMMODITY MANAGEMENT
+// ======================
+model Commodity {
+  id              String   @id @default(uuid())
+  name            String
+  category        String   // e.g., Cereals, Pulses, Oilseeds, Fruits, Vegetables
+  unit            String   @default("quintal")
+  minPrice        Float?   // Minimum Support Price
+  maxPrice        Float?   // Market Price
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  fpo             FPO?     @relation("fpoCommodities", fields: [fpoId], references: [id])
+  fpoId           String?
+  productionForecasts ProductionForecast[] @relation("commodityForecasts")
+  demands         BuyerDemand[] @relation("commodityDemands")
+  transactions    Transaction[] @relation("commodityTransactions")
+
+  @@index([name, category])
+  @@index([isActive])
+}
+
+model ProductionForecast {
+  id          String   @id @default(uuid())
+  fpo         FPO      @relation("fpoProduction", fields: [fpoId], references: [id])
+  fpoId       String
+  commodity   Commodity @relation("commodityForecasts", fields: [commodityId], references: [id])
+  commodityId String
+  season      String   // e.g., "Kharif 2026", "Rabi 2026-27"
+  expectedQuantity Float // in quintals
+  availableQuantity Float @default(0)
+  harvestStart DateTime
+  harvestEnd   DateTime
+  qualityGrade String?  // A, B, C, etc.
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([fpoId, commodityId])
+  @@index([season])
+  @@index([harvestStart, harvestEnd])
+}
+
+// ======================
+// BUYER & DEMAND MANAGEMENT
+// ======================
+model Buyer {
+  id            String   @id @default(uuid())
+  companyName   String
+  gstNumber     String?  @unique
+  panNumber     String?  @unique
+  address       String
+  district      String
+  state         String
+  pincode       String
+  contactPerson String
+  contactPhone  String   @unique
+  contactEmail  String   @unique
+  website       String?
+  description   String?
+  isVerified    Boolean  @default(false)
+  verificationDate DateTime?
+  verifiedBy    String?  // Reference to SUPER_ADMIN
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  user          User?    @relation("buyerUser", fields: [userId], references: [id])
+  userId        String?
+  demands       BuyerDemand[] @relation("buyerDemands")
+  inquiries     BuyerInquiry[] @relation("buyerInquiries")
+  transactions  Transaction[] @relation("buyerTransactions")
+
+  @@index([contactPhone])
+  @@index([contactEmail])
+  @@index([state, district])
+  @@index([isVerified])
+}
+
+model BuyerDemand {
+  id             String   @id @default(uuid())
+  buyer          Buyer    @relation("buyerDemands", fields: [buyerId], references: [id])
+  buyerId        String
+  commodity      Commodity @relation("commodityDemands", fields: [commodityId], references: [id])
+  commodityId    String
+  quantity       Float    // Required quantity in quintals
+  unit           String   @default("quintal")
+  qualityGrade   String?  // Required quality (A, B, C, etc.)
+  deliveryLocation String
+  deliveryDistrict String?
+  deliveryState  String?
+  deliveryPincode String?
+  deliveryBy     DateTime // Required by date
+  pricePerUnit   Float?   // Expected price per unit
+  totalAmount    Float?   // Calculated: quantity * pricePerUnit
+  paymentTerms   String?  // e.g., "Advance 30%", "Net 15 days"
+  status         DemandStatus @default(OPEN)
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  matches        DemandMatch[] @relation("demandMatches")
+  inquiries      BuyerInquiry[] @relation("inquiryFromDemand")
+
+  @@index([commodityId, status])
+  @@index([deliveryBy])
+  @@index([buyerId])
+}
+
+enum DemandStatus {
+  OPEN
+  PARTIALLY_FILLED
+  FILLED
+  CLOSED
+  CANCELLED
+}
+
+model BuyerInquiry {
+  id            String   @id @default(uuid())
+  buyer         Buyer    @relation("buyerInquiries", fields: [buyerId], references: [id])
+  buyerId       String
+  fpo           FPO      @relation("fpoInquiries", fields: [fpoId], references: [id])
+  fpoId         String
+  demand        BuyerDemand? @relation("inquiryFromDemand", fields: [demandId], references: [id])
+  demandId      String?
+  message       String
+  quantity      Float?   // Quantity they're interested in
+  offeredPrice  Float?   // Price they're offering per unit
+  status        InquiryStatus @default(PENDING)
+  respondedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([fpoId, status])
+  @@index([buyerId, status])
+  @@index([createdAt])
+}
+
+enum InquiryStatus {
+  PENDING
+  RESPONDED
+  NEGOTIATING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+// ======================
+// LOGISTICS MANAGEMENT
+// ======================
+model LogisticsProvider {
+  id            String   @id @default(uuid())
+  companyName   String
+  gstNumber     String?  @unique
+  panNumber     String?  @unique
+  address       String
+  district      String
+  state         String
+  pincode       String
+  contactPerson String
+  contactPhone  String   @unique
+  contactEmail  String   @unique
+  website       String?
+  description   String?
+  licenseNumber String?  // Transport license
+  vehicleTypes  String[] // @db.JsonArray(["TRUCK", "TRAILER", "REFRIGERATED"])
+  totalVehicles Int      @default(0)
+  isVerified    Boolean  @default(false)
+  verificationDate DateTime?
+  verifiedBy    String?  // Reference to SUPER_ADMIN
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  user          User?    @relation("logisticsUser", fields: [userId], references: [id])
+  userId        String?
+  quotes        TransportQuote[] @relation("providerQuotes")
+  shipments     Shipment[] @relation("providerShipments")
+
+  @@index([contactPhone])
+  @@index([contactEmail])
+  @@index([state, district])
+  @@index([isVerified])
+}
+
+model TransportQuote {
+  id            String   @id @default(uuid())
+  logistics     LogisticsProvider @relation("providerQuotes", fields: [logisticsId], references: [id])
+  logisticsId   String
+  // Could be linked to a demand, transaction, or standalone request
+  fromLocation  String
+  fromDistrict  String?
+  fromState     String?
+  fromPincode   String?
+  toLocation    String
+  toDistrict    String?
+  toState       String?
+  toPincode     String?
+  distanceKm    Float?   // Optional: pre-calculated distance
+  vehicleType   String   // e.g., "TRUCK_10T", "REFRIGERATED_20T"
+  vehicleNumber String?  // Optional: specific vehicle
+  availableFrom DateTime
+  availableTo   DateTime?
+  ratePerKm     Float?   // Rate per kilometer
+  ratePerTrip   Float?   // Fixed rate for the trip
+  totalAmount   Float?   // Calculated amount
+  status        QuoteStatus @default(PENDING)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  shipment      Shipment? @relation("quoteToShipment")
+
+  @@index([logisticsId, status])
+  @@index([fromState, toState])
+  @@index([createdAt])
+}
+
+enum QuoteStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  COMPLETED
+}
+
+model Shipment {
+  id            String   @id @default(uuid())
+  logistics     LogisticsProvider @relation("providerShipments", fields: [logisticsId], references: [id])
+  logisticsId   String
+  quote         TransportQuote? @relation("quoteToShipment", fields: [quoteId], references: [id])
+  quoteId       String?
+  // Linked to transaction or demand
+  transaction   Transaction? @relation("shipmentTransaction", fields: [transactionId], references: [id])
+  transactionId String?
+
+  pickupLocation String
+  pickupDateTime DateTime
+  deliveryLocation String
+  deliveryDateTime DateTime?
+  commodityType  String
+  quantity       Float   // in quintals
+  vehicleNumber  String
+  driverName     String
+  driverPhone    String
+  currentLocation String? // For tracking
+  status         ShipmentStatus @default(BOOKED)
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([logisticsId, status])
+  @@index([transactionId])
+  @@index([pickupDateTime])
+}
+
+enum ShipmentStatus {
+  BOOKED
+  PICKED_UP
+  IN_TRANSIT
+  DELIVERED
+  DELAYED
+  CANCELLED
+}
+
+// ======================
+// TRANSACTION & AGREEMENT
+// ======================
+model Transaction {
+  id            String   @id @default(uuid())
+  transactionNo String   @unique  // e.g., TXN-FPO-20260001
+  fpo           FPO      @relation("fpoTransactions", fields: [fpoId], references: [id])
+  fpoId         String
+  buyer         Buyer    @relation("buyerTransactions", fields: [buyerId], references: [id])
+  buyerId       String
+  commodity     Commodity @relation("commodityTransactions", fields: [commodityId], references: [id])
+  commodityId   String
+  quantity      Float    // Contracted/agreed quantity in quintals
+  unit          String   @default("quintal")
+  qualityGrade  String   // Agreed quality (A, B, C, etc.)
+  pricePerUnit  Float    // Agreed price per unit
+  totalAmount   Float    // Calculated: quantity * pricePerUnit
+  status        TransactionStatus @default(DRAFT)
+  // Agreement details
+  agreementDate DateTime
+  deliveryDate  DateTime
+  paymentDate   DateTime?
+  // References
+  demand        BuyerDemand? @relation("transactionFromDemand", fields: [demandId], references: [id])
+  demandId      String?
+  shipment      Shipment? @relation("shipmentTransaction", fields: [shipmentId], references: [id])
+  shipmentId    String?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  payments      TransactionPayment[] @relation("transactionPayments"
+
+  @@index([fpoId, status])
+  @@index([buyerId, status])
+  @@index([transactionNo])
+  @@index([createdAt])
+}
+
+enum TransactionStatus {
+  DRAFT
+  INQUIRY
+  NEGOTIATION
+  AGREEMENT
+  LOGISTICS
+  DELIVERY
+  PAYMENT
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+model TransactionPayment {
+  id            String   @id @default(uuid())
+  transaction   Transaction @relation("transactionPayments", fields: [transactionId], references: [id])
+  transactionId String
+  amount        Float
+  paymentDate   DateTime
+  paymentMode   PaymentMode // e.g., "NEFT", "RTGS", "UPI", "CHEQUE", "CASH"
+  transactionId String?     // Bank transaction ID/UTR
+  status        PaymentStatus @default(PENDING)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([transactionId, status])
+  @@index([paymentDate])
+}
+
+enum PaymentMode {
+  NEFT
+  RTGS
+  UPI
+  CHEQUE
+  CASH
+  ONLINE
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+// ======================
+// ANALYTICS & REPORTING
+// ======================
+model AnalyticsSnapshot {
+  id            String   @id @default(uuid())
+  date          DateTime @default(now())
+  // Aggregated metrics
+  totalFPOs     Int      @default(0)
+  totalFarmers  Int      @default(0)
+  totalBuyers   Int      @default(0)
+  totalTransactions Int   @default(0)
+  totalVolume   Float    @default(0) // Total commodity traded in quintals
+  totalRevenue  Float    @default(0) // Total transaction value
+  activeFPOs    Int      @default(0)
+  verifiedFPOs  Int      @default(0)
+  // Commodity-wise breakdown would be in separate table or calculated on fly
+  createdAt     DateTime @default(now())
+
+  @@index([date])
+}
+
+// ======================
+// NOTIFICATIONS
+// ======================
+model Notification {
+  id            String   @id @default(uuid())
+  recipient     String   // User ID
+  recipientType Role?    // For routing (optional)
+  title         String
+  message       String
+  type          NotificationType // e.g., "INQUIRY", "AGREEMENT", "PAYMENT"
+  isRead        Boolean  @default(false)
+  isSent        Boolean  @default(false) // For SMS/Email/WhatsApp
+  relatedId     String?  // Reference to transaction, demand, etc.
+  relatedType   String?  // e.g., "TRANSACTION", "DEMAND"
+  sentAt        DateTime?
+  createdAt     DateTime @default(now())
+
+  @@index([recipient, isRead])
+  @@index([createdAt])
+}
+
+enum NotificationType {
+  NEW_INQUIRY
+  INQUIRY_RESPONSE
+  DEMAND_MATCH
+  AGREEMENT_CREATED
+  LOGISTICS_UPDATE
+  DELIVERY_CONFIRMED
+  PAYMENT_RECEIVED
+  PAYMENT_FAILED
+  VERIFICATION_STATUS
+  SYSTEM_ALERT
+}
+
+// ======================
+// AUDIT LOGS
+// ======================
+model AuditLog {
+  id            String   @id @default(uuid())
+  userId        String?  // Who performed the action
+  action        String   // e.g., "CREATE_FPO", "UPDATE_TRANSACTION"
+  entityType    String   // e.g., "FPO", "TRANSACTION", "USER"
+  entityId      String?  // ID of affected entity
+  changes       Json     // Store before/after changes as JSON
+  ipAddress     String?
+  userAgent     String?
+  createdAt     DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([entityType, entityId])
+}
+
+// ======================
+// HELPER ENUMS & TYPES
+// ======================
+
+// Commodity categories for validation
+// In practice, you might want a separate CommodityCategory model
+
+// Note: For production, consider adding:
+// - Indexes on frequently queried columns
+// - Soft delete flags where appropriate
+// - Additional validation rules (check constraints)
+// - Partitioning for large tables (transactions, analytics)

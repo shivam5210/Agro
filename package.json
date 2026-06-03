@@ -1,0 +1,29 @@
+{
+  "name": "national-fpo-platform",
+  "version": "1.0.0",
+  "description": "National FPO Digital Market Linkage Platform",
+  "private": true,
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev:all": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:api": "cd apps/api && npm run start:dev",
+    "dev:web": "cd apps/web && npm run dev",
+    "build:all": "npm run build:api && npm run build:web",
+    "build:api": "cd apps/api && npm run build",
+    "build:web": "cd apps/web && npm run build",
+    "start:all": "concurrently \"npm run start:api\" \"npm run start:web\"",
+    "start:api": "cd apps/api && npm run start",
+    "start:web": "cd apps/web && npm run start",
+    "test": "concurrently \"npm test --workspace=apps/api\" \"npm test --workspace=apps/web\"",
+    "lint": "concurrently \"npm run lint --workspace=apps/api\" \"npm run lint --workspace=apps/web\"",
+    "prisma:generate": "cd apps/api && npm run prisma:generate",
+    "prisma:migrate": "cd apps/api && npm run prisma:migrate",
+    "prisma:seed": "cd apps/api && npm run prisma:seed"
+  },
+  "devDependencies": {
+    "concurrently": "^8.0.0"
+  }
+}
