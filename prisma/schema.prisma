@@ -90,6 +90,7 @@ model FPO {
   productionData  ProductionForecast[] @relation("fpoProduction")
   transactions    Transaction[] @relation("fpoTransactions")
   buyerInquiries  BuyerInquiry[] @relation("fpoInquiries")
+  demandMatches   DemandMatch[] @relation("demandMatches")
 
   @@index([state, district])
   @@index([isVerified])
@@ -449,7 +450,7 @@ model Transaction {
   updatedAt     DateTime @updatedAt
 
   // Relations
-  payments      TransactionPayment[] @relation("transactionPayments"
+  payments      TransactionPayment[] @relation("transactionPayments")
 
   @@index([fpoId, status])
   @@index([buyerId, status])
@@ -471,17 +472,17 @@ enum TransactionStatus {
 }
 
 model TransactionPayment {
-  id            String   @id @default(uuid())
-  transaction   Transaction @relation("transactionPayments", fields: [transactionId], references: [id])
-  transactionId String
-  amount        Float
-  paymentDate   DateTime
-  paymentMode   PaymentMode // e.g., "NEFT", "RTGS", "UPI", "CHEQUE", "CASH"
-  transactionId String?     // Bank transaction ID/UTR
-  status        PaymentStatus @default(PENDING)
-  notes         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id                String   @id @default(uuid())
+  transaction       Transaction @relation("transactionPayments", fields: [transactionId], references: [id])
+  transactionId     String
+  amount            Float
+  paymentDate       DateTime
+  paymentMode       PaymentMode // e.g., "NEFT", "RTGS", "UPI", "CHEQUE", "CASH"
+  bankTransactionId String?     // Bank transaction ID/UTR
+  status            PaymentStatus @default(PENDING)
+  notes             String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   @@index([transactionId, status])
   @@index([paymentDate])
@@ -502,6 +503,59 @@ enum PaymentStatus {
   COMPLETED
   FAILED
   REFUNDED
+}
+
+// ======================
+// DEMAND MATCHING
+// ======================
+model DemandMatch {
+  id              String   @id @default(uuid())
+  demand          BuyerDemand @relation("demandMatches", fields: [demandId], references: [id])
+  demandId        String
+  fpo             FPO      @relation("demandMatches", fields: [fpoId], references: [id])
+  fpoId           String
+  matchedQuantity Float    // Quantity that matches
+  matchScore      Float?   // Matching score (0-100)
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([demandId, fpoId])
+  @@index([matchScore])
+}
+
+// ======================
+// FINANCIAL INSTITUTIONS
+// ======================
+model FinancialInstitution {
+  id              String   @id @default(uuid())
+  name            String
+  type            String   // e.g., "BANK", "NBFC", "MFI"
+  registrationNo  String?  @unique
+  address         String
+  district        String
+  state           String
+  pincode         String
+  contactPerson   String
+  contactPhone    String   @unique
+  contactEmail    String   @unique
+  website         String?
+  description     String?
+  isVerified      Boolean  @default(false)
+  verificationDate DateTime?
+  verifiedBy      String?  // Reference to SUPER_ADMIN
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  user            User?    @relation("financialUser", fields: [userId], references: [id])
+  userId          String?
+
+  @@index([contactPhone])
+  @@index([contactEmail])
+  @@index([state, district])
+  @@index([isVerified])
 }
 
 // ======================
@@ -576,16 +630,3 @@ model AuditLog {
   @@index([userId, createdAt])
   @@index([entityType, entityId])
 }
-
-// ======================
-// HELPER ENUMS & TYPES
-// ======================
-
-// Commodity categories for validation
-// In practice, you might want a separate CommodityCategory model
-
-// Note: For production, consider adding:
-// - Indexes on frequently queried columns
-// - Soft delete flags where appropriate
-// - Additional validation rules (check constraints)
-// - Partitioning for large tables (transactions, analytics)
