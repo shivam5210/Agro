@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "env": {
+    "nodejs": true
+  },
+  "buildCommand": "npm run build:api",
+  "installCommand": "npm install",
+  "outputDirectory": "apps/api/dist"
+}
